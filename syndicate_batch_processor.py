@@ -7,124 +7,41 @@ import random
 import re
 import sqlite3
 
-# HARDCODED API KEY
+# HARDCODED API KEYS & TELEGRAM CONFIG
 CRICDATA_API_KEY = "4905f024-424c-4f6c-a2e6-b4e64f41f7bb"
+TELEGRAM_BOT_TOKEN = "8942957322:AAF86-GixapC8Rs88Jcn-wWX6M-o-6SYWKE"
+TELEGRAM_CHAT_ID = "8942186617"
 
-def get_active_match_id():
-    """Automatically fetches the first available valid match ID from CricAPI."""
-    print("[*] Fetching today's active match list from CricAPI...")
-    matches_url = f"https://api.cricapi.com/v1/currentMatches?apikey={CRICDATA_API_KEY}&offset=0"
-    
-    response = requests.get(matches_url)
-    if response.status_code != 200:
-        raise SystemExit(f"Failed to fetch active matches. Status: {response.status_code}")
-        
-    data = response.json()
-    if data.get("status") != "success":
-        raise SystemExit(f"API Error: {data.get('reason')}")
-        
-    match_list = data.get("data", [])
-    if not match_list:
-        raise SystemExit("No active matches found today.")
-        
-    selected_match = match_list[0]
-    match_id = selected_match.get("id")
-    match_name = selected_match.get("name")
-    
-    print(f"[+] Auto-selected Match: {match_name}")
-    print(f"[+] Using Valid GUID: {match_id}\n")
-    return match_id
-
-def fetch_live_pool(match_id):
-    """Fetches live player data from CricAPI, with a simulated fallback for empty rosters."""
-    if not re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", match_id):
-        print(f"[!] The ID '{match_id}' is not a valid 32-digit CricAPI GUID.")
-        match_id = get_active_match_id()
-        
-    url = f"https://api.cricapi.com/v1/match_squad?apikey={CRICDATA_API_KEY}&id={match_id}"
-    
-    print(f"Fetching live squad roster...")
-    response = requests.get(url)
-    
+def send_telegram_message(message):
+    """Dispatches a notification message via Telegram Bot API."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
     try:
-        data = response.json()
-    except requests.exceptions.JSONDecodeError:
-        raise SystemExit(f"API Error! Status: {response.status_code}. Raw: {response.text[:150]}")
-        
-    if data.get("status") != "success":
-        raise ConnectionError(f"API Fetch Failed: {data.get('reason', 'Unknown API Error')}")
-    
-    all_players = []
-    for team_info in data.get("data", []):
-        team_name = team_info.get("teamName", "Unknown")
-        for player in team_info.get("players", []):
-            player_dict = {
-                "Player_Name": player.get("name"),
-                "Team": team_name,
-                "Role": player.get("role", "BAT"),
-                "Salary": round(random.uniform(7.5, 10.5), 1), 
-                "Projection": round(random.uniform(20, 80), 1), 
-                "pOWN%": round(random.uniform(5, 60), 1)       
-            }
-            all_players.append(player_dict)
-            
-    df = pd.DataFrame(all_players)
-    
-    if df.empty:
-        print("\n[!] API returned successfully, but no squad data is available for this match yet.")
-        print("[*] Generating a simulated 22-player roster to test the ILP pipeline...")
-        
-        dummy_players = []
-        for team_name in ["Team_A", "Team_B"]:
-            for i in range(1, 12):
-                dummy_players.append({
-                    "Player_Name": f"{team_name}_Player_{i}",
-                    "Team": team_name,
-                    "Role": random.choice(["BAT", "BOWL", "AR", "WK"]),
-                    "Salary": round(random.uniform(7.5, 10.5), 1),
-                    "Projection": round(random.uniform(20, 80), 1),
-                    "pOWN%": round(random.uniform(5, 60), 1)
-                })
-        df = pd.DataFrame(dummy_players)
-    
-    print(f"Successfully loaded {len(df)} players into the pipeline.\n")
-    return df
-
-def load_post_toss_squad_from_file(filename="post_toss_squad.csv"):
-    """
-    Reads a local CSV file containing confirmed playing 11 players after the toss 
-    (sourced directly from the Dream11 app or your post-toss workflow).
-    Expected columns: Player_Name, Team, Role, Salary, Projection, pOWN%
-    """
-    if not os.path.exists(filename):
-        return None
-        
-    print(f"[*] Loading confirmed post-toss squad from {filename}...")
-    df = pd.read_csv(filename)
-    print(f"Successfully loaded {len(df)} confirmed post-toss players.")
-    return df
+        response = requests.post(url, json=payload)
+        if response.status_code == 200:
+            print("[+] Telegram alert sent successfully.")
+        else:
+            print(f"[!] Failed to send Telegram alert. Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        print(f"[!] Exception occurred while sending Telegram message: {e}")
 
 def apply_vegas_multipliers_from_api(df, odds_mapping):
-    """
-    Applies precise projection boosts/penalties based on real bookmaker implied probabilities.
-    odds_mapping format: {"Team_A": 0.65, "Team_B": 0.35} (implied win probs summing to 1.0)
-    """
+    """Applies precise projection boosts/penalties based on real bookmaker implied probabilities."""
     print("Applying live Vegas odds projection multipliers...")
-    
     for idx, row in df.iterrows():
         team = row['Team']
-        implied_prob = odds_mapping.get(team, 0.50)  # Default to even odds if unlisted
-        
-        # Scale projection multiplier based on deviation from an even 50% split
+        implied_prob = odds_mapping.get(team, 0.50)
         multiplier = 1.0 + (implied_prob - 0.50) * 1.0
         df.loc[idx, 'Projection'] = round(row['Projection'] * multiplier, 1)
-        
     return df
 
 def run_ilp_optimization(df):
     """Runs Integer Linear Programming to find the optimal lineup."""
     print("Running ILP Optimization constraints...")
-    
     df["Leverage_Score"] = df["Projection"] - (df["pOWN%"] * 0.5)
     
     prob = pulp.LpProblem("Fantasy_Cricket_Optimizer", pulp.LpMaximize)
@@ -143,13 +60,14 @@ def run_ilp_optimization(df):
     selected_indices = [i for i in df.index if player_vars[i].varValue == 1.0]
     optimal_lineup = df.loc[selected_indices].copy()
     
+    total_proj = round(pulp.value(prob.objective), 2)
     print(f"Optimization Status: {pulp.LpStatus[prob.status]}")
-    print(f"Total Projected Points: {round(pulp.value(prob.objective), 2)}\n")
-    return df, optimal_lineup
+    print(f"Total Projected Points: {total_proj}\n")
+    return df, optimal_lineup, total_proj
 
-def create_visualizations(pool_df):
+def create_visualizations(pool_df, filename="Enhanced_Leverage_Chart.html"):
     """Generates a dynamic 3D bubble chart for leverage and salary analysis."""
-    print("Generating enhanced HTML visualization...")
+    print(f"Generating enhanced HTML visualization: {filename}...")
     fig = px.scatter(
         pool_df, 
         x="pOWN%", 
@@ -158,47 +76,129 @@ def create_visualizations(pool_df):
         color="Leverage_Score",
         hover_name="Player_Name",
         hover_data=["Team", "Role", "Salary"],
-        title="DFS Leverage & Salary Matrix (Post-Toss & Vegas Weighted)",
+        title=f"DFS Leverage & Salary Matrix - {filename}",
         color_continuous_scale="Viridis",
         template="plotly_dark"
     )
     fig.add_shape(type="line", x0=0, y0=20, x1=100, y1=80, line=dict(color="Red", dash="dash"))
-    fig.write_html("Enhanced_Leverage_Chart.html")
+    fig.write_html(filename)
 
 if __name__ == "__main__":
-    MATCH_ID = "398"
-    
-    # 1. Post-Toss Ingestion: Check if confirmed squad file from the app exists, otherwise fetch via API/Sim
-    player_pool = load_post_toss_squad_from_file("post_toss_squad.csv")
-    if player_pool is None or player_pool.empty:
-        player_pool = fetch_live_pool(MATCH_ID)
-    
-    # 2. Extract active team names dynamically from the pool to set up market odds
-    unique_teams = player_pool['Team'].unique()
-    if len(unique_teams) >= 2:
-        # Assign baseline or live bookmaker implied probabilities based on the two teams playing
-        live_odds = {
-            unique_teams[0]: 0.58,  # E.g., 58% implied win probability for Team 1
-            unique_teams[1]: 0.42   # E.g., 42% implied win probability for Team 2
+    matches_data = {
+        "NAM_vs_SA": {
+            "odds": {"South Africa": 0.75, "Namibia": 0.25},
+            "data": {
+                "Player_Name": [
+                    "R Hermann", "C Esterhuizen", "Z Green",
+                    "D Brevis", "L Pretorius", "J Hermann", "A Volschenk", "de Zorzi", "M Kruger", "J Taanyanda", "L Steenkamp", "J Smith", "J Frylinck", "van Lingen", "D Leicher",
+                    "G Erasmus", "J Balt", "Smit", "E Bosch", "P Subrayen", "Nicol Loftie-Eaton", "A Simelane",
+                    "K Maphaka", "B Fortuin", "L Sipamla", "N Peter", "W Smith", "D Jansen", "J Brassell", "N Mokoena", "M Heingo", "B Shikongo", "R Trumpelmann", "B Scholtz"
+                ],
+                "Team": [
+                    "South Africa", "South Africa", "Namibia",
+                    "South Africa", "South Africa", "Namibia", "Namibia", "South Africa", "Namibia", "Namibia", "Namibia", "South Africa", "Namibia", "Namibia", "Namibia",
+                    "Namibia", "Namibia", "Namibia", "South Africa", "South Africa", "Namibia", "South Africa",
+                    "South Africa", "South Africa", "South Africa", "South Africa", "Namibia", "South Africa", "Namibia", "Namibia", "Namibia", "Namibia", "Namibia", "Namibia"
+                ],
+                "Role": [
+                    "WK", "WK", "WK",
+                    "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT",
+                    "AR", "AR", "AR", "AR", "AR", "AR", "AR",
+                    "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL"
+                ],
+                "Salary": [
+                    8.5, 7.0, 6.0,
+                    9.0, 8.5, 8.0, 8.0, 8.0, 8.0, 8.0, 7.5, 7.5, 7.0, 6.5, 6.0,
+                    8.0, 8.0, 7.0, 7.0, 6.5, 6.5, 6.5,
+                    8.0, 8.0, 8.0, 7.5, 7.5, 7.0, 7.0, 7.0, 6.5, 6.5, 6.0, 6.0
+                ],
+                "Projection": [
+                    52.0, 38.0, 130.0,
+                    417.0, 265.0, 129.0, 198.0, 48.0, 0.0, 0.0, 115.0, 0.0, 194.0, 0.0, 0.0,
+                    372.0, 35.0, 193.0, 93.0, 247.0, 97.0, 0.0,
+                    71.0, 314.0, 7.0, 31.0, 0.0, 377.0, 111.0, 55.0, 104.0, 0.0, 253.0, 44.0
+                ],
+                "pOWN%": [
+                    23.73, 21.95, 69.25,
+                    91.93, 87.07, 63.29, 26.40, 1.76, 2.55, 1.99, 23.36, 2.48, 69.31, 2.74, 2.61,
+                    92.17, 7.12, 77.21, 31.50, 81.83, 11.73, 2.25,
+                    18.02, 85.53, 2.65, 9.17, 2.91, 84.18, 16.12, 2.12, 9.25, 2.80, 70.16, 2.83
+                ]
+            }
+        },
+        "UAE_W_vs_INA_W": {
+            "odds": {"UAE-W": 0.55, "INA-W": 0.45},
+            "data": {
+                "Player_Name": [
+                    "T Satish", "Putu Ayu Nanda Sakarini", "Winda Prastini",
+                    "M Kulkarni", "R Pangestuti", "K Kasse", "D Wulandari", "M Corazon", "R Rajith", "L Keny", "U Iyer",
+                    "Luh Dewi", "H Hotchandani", "Elna Yaung", "J Thirukkumaran", "Made Putri Suwandewi", "S Dharnidharka", "Kadek Fitria Rada Rani", "E Oza",
+                    "S Velic", "N Ariani", "I Nandakumar", "A Silva", "D Bangi", "S Maypriani", "V Mahesh", "S Gokhale", "S Kotte", "L Qiao", "D Paramitha", "A Supriya"
+                ],
+                "Team": [
+                    "UAE-W", "INA-W", "INA-W",
+                    "UAE-W", "INA-W", "INA-W", "INA-W", "INA-W", "UAE-W", "UAE-W", "UAE-W",
+                    "INA-W", "UAE-W", "INA-W", "UAE-W", "INA-W", "UAE-W", "INA-W", "UAE-W",
+                    "INA-W", "INA-W", "UAE-W", "UAE-W", "INA-W", "INA-W", "UAE-W", "UAE-W", "UAE-W", "INA-W", "INA-W", "UAE-W"
+                ],
+                "Role": [
+                    "WK", "WK", "WK",
+                    "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT",
+                    "AR", "AR", "AR", "AR", "AR", "AR", "AR", "AR",
+                    "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL"
+                ],
+                "Salary": [
+                    7.0, 6.0, 6.0,
+                    8.0, 8.0, 8.0, 7.5, 6.5, 6.0, 6.0, 6.0,
+                    8.0, 7.0, 7.0, 7.0, 6.0, 6.0, 6.0, 6.0,
+                    8.0, 8.0, 8.0, 8.0, 8.0, 7.5, 7.0, 7.0, 6.5, 6.5, 6.0, 6.0
+                ],
+                "Projection": [
+                    2.0, 17.0, 0.0,
+                    7.0, 47.0, 0.0, 22.0, 32.0, 27.0, 1.0, 0.0,
+                    196.0, 10.0, 0.0, 0.0, 87.0, 28.0, 20.0, 50.0,
+                    87.0, 194.0, 12.0, 12.0, 0.0, 112.0, 8.0, 0.0, 5.0, 0.0, 24.0, 0.0
+                ],
+                "pOWN%": [
+                    80.13, 19.40, 9.63,
+                    5.95, 70.20, 12.03, 6.08, 21.77, 26.95, 9.05, 11.56,
+                    86.43, 56.21, 10.99, 10.97, 75.61, 70.06, 18.41, 81.49,
+                    73.55, 82.97, 44.19, 40.52, 10.70, 71.41, 25.86, 10.58, 17.39, 10.73, 18.56, 10.63
+                ]
+            }
         }
-    else:
-        live_odds = {}
+    }
 
-    # 3. Apply Vegas odds multipliers to dynamically weight projections
-    player_pool = apply_vegas_multipliers_from_api(player_pool, live_odds)
-    
-    # 4. Run ILP Optimization on the post-toss, Vegas-weighted player pool
-    processed_pool, lineup = run_ilp_optimization(player_pool)
-    
-    # 5. Store final lineup in the SQLite database warehouse
-    print("Saving lineup to SQL database...")
-    lineup.insert(0, "Match_ID", MATCH_ID)
-    
     conn = sqlite3.connect("dfs_history.db")
-    lineup.to_sql("historical_lineups", conn, if_exists="append", index=False)
+
+    for match_id, match_info in matches_data.items():
+        print(f"\n================================")
+        print(f"Processing Match: {match_id}")
+        print(f"================================")
+        
+        player_pool = pd.DataFrame(match_info["data"])
+        
+        # Apply Vegas Odds Multipliers
+        player_pool = apply_vegas_multipliers_from_api(player_pool, match_info["odds"])
+        
+        # Run ILP Optimization
+        processed_pool, lineup, total_proj = run_ilp_optimization(player_pool)
+        
+        # Save to SQLite Database
+        lineup.insert(0, "Match_ID", match_id)
+        lineup.to_sql("historical_lineups", conn, if_exists="append", index=False)
+        
+        # Generate Visualizations
+        create_visualizations(processed_pool, f"{match_id}_Leverage_Chart.html")
+        
+        # Format and Dispatch Telegram Alert
+        players_str = ", ".join(lineup["Player_Name"].tolist())
+        tg_message = (
+            f"🏏 *DFS Match Optimized*: `{match_id}`\n"
+            f"📊 *Total Projected Points*: `{total_proj}`\n"
+            f"👥 *Selected 11 Players*:\n{players_str}"
+        )
+        send_telegram_message(tg_message)
+
     conn.close()
-    
-    # 6. Generate visual reports
-    create_visualizations(processed_pool)
-    
-    print("Pipeline complete! Post-toss data captured, Vegas weights applied, and database updated.")
+    print("\nAll matches processed successfully! Batched lineups logged, charts generated, and Telegram alerts dispatched.")
