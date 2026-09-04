@@ -3,8 +3,6 @@ import requests
 import pandas as pd
 import pulp
 import plotly.express as px
-import random
-import re
 import sqlite3
 
 # HARDCODED API KEYS & TELEGRAM CONFIG
@@ -191,14 +189,32 @@ if __name__ == "__main__":
         # Generate Visualizations
         create_visualizations(processed_pool, f"{match_id}_Leverage_Chart.html")
         
-        # Format and Dispatch Telegram Alert
-        players_str = ", ".join(lineup["Player_Name"].tolist())
+        # Automated Captain & Vice-Captain assignment based on highest projection
+        lineup_sorted = lineup.sort_values(by="Projection", ascending=False).reset_index(drop=True)
+        captain = lineup_sorted.loc[0, "Player_Name"] if len(lineup_sorted) > 0 else ""
+        vc = lineup_sorted.loc[1, "Player_Name"] if len(lineup_sorted) > 1 else ""
+
+        player_lines = []
+        for _, row in lineup_sorted.iterrows():
+            name = row["Player_Name"]
+            tag = ""
+            if name == captain:
+                tag = " (C 👑)"
+            elif name == vc:
+                tag = " (VC 🥈)"
+            player_lines.append(f"• {name}{tag} [{row['Role']}]")
+
+        players_formatted = "\n".join(player_lines)
+
+        # Format and Dispatch Telegram Alert with C/VC tags
         tg_message = (
             f"🏏 *DFS Match Optimized*: `{match_id}`\n"
             f"📊 *Total Projected Points*: `{total_proj}`\n"
-            f"👥 *Selected 11 Players*:\n{players_str}"
+            f"👑 *Captain*: `{captain}`\n"
+            f"🥈 *Vice-Captain*: `{vc}`\n\n"
+            f"👥 *Selected 11 Players*:\n{players_formatted}"
         )
         send_telegram_message(tg_message)
 
     conn.close()
-    print("\nAll matches processed successfully! Batched lineups logged, charts generated, and Telegram alerts dispatched.")
+    print("\nAll matches processed successfully! Batched lineups logged, charts generated, and Telegram alerts dispatched with C/VC.")
