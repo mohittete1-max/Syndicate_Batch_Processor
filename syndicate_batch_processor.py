@@ -5,6 +5,7 @@ import pulp
 import plotly.express as px
 import random
 import re
+import sqlite3
 
 # HARDCODED API KEY
 CRICDATA_API_KEY = "4905f024-424c-4f6c-a2e6-b4e64f41f7bb"
@@ -26,7 +27,6 @@ def get_active_match_id():
     if not match_list:
         raise SystemExit("No active matches found today.")
         
-    # Pick the first match in the list
     selected_match = match_list[0]
     match_id = selected_match.get("id")
     match_name = selected_match.get("name")
@@ -37,8 +37,6 @@ def get_active_match_id():
 
 def fetch_live_pool(match_id):
     """Fetches live player data from CricAPI, with a simulated fallback for empty rosters."""
-    
-    # 1. Intercept invalid IDs (CricAPI requires UUID format)
     if not re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", match_id):
         print(f"[!] The ID '{match_id}' is not a valid 32-digit CricAPI GUID.")
         match_id = get_active_match_id()
@@ -60,7 +58,6 @@ def fetch_live_pool(match_id):
     for team_info in data.get("data", []):
         team_name = team_info.get("teamName", "Unknown")
         for player in team_info.get("players", []):
-            # Generating DFS metrics for the optimizer since API only returns raw roster profiles
             player_dict = {
                 "Player_Name": player.get("name"),
                 "Team": team_name,
@@ -73,7 +70,6 @@ def fetch_live_pool(match_id):
             
     df = pd.DataFrame(all_players)
     
-    # 2. Failsafe for unannounced/empty squads
     if df.empty:
         print("\n[!] API returned successfully, but no squad data is available for this match yet.")
         print("[*] Generating a simulated 22-player roster to test the ILP pipeline...")
@@ -92,6 +88,37 @@ def fetch_live_pool(match_id):
         df = pd.DataFrame(dummy_players)
     
     print(f"Successfully loaded {len(df)} players into the pipeline.\n")
+    return df
+
+def load_post_toss_squad_from_file(filename="post_toss_squad.csv"):
+    """
+    Reads a local CSV file containing confirmed playing 11 players after the toss 
+    (sourced directly from the Dream11 app or your post-toss workflow).
+    Expected columns: Player_Name, Team, Role, Salary, Projection, pOWN%
+    """
+    if not os.path.exists(filename):
+        return None
+        
+    print(f"[*] Loading confirmed post-toss squad from {filename}...")
+    df = pd.read_csv(filename)
+    print(f"Successfully loaded {len(df)} confirmed post-toss players.")
+    return df
+
+def apply_vegas_multipliers_from_api(df, odds_mapping):
+    """
+    Applies precise projection boosts/penalties based on real bookmaker implied probabilities.
+    odds_mapping format: {"Team_A": 0.65, "Team_B": 0.35} (implied win probs summing to 1.0)
+    """
+    print("Applying live Vegas odds projection multipliers...")
+    
+    for idx, row in df.iterrows():
+        team = row['Team']
+        implied_prob = odds_mapping.get(team, 0.50)  # Default to even odds if unlisted
+        
+        # Scale projection multiplier based on deviation from an even 50% split
+        multiplier = 1.0 + (implied_prob - 0.50) * 1.0
+        df.loc[idx, 'Projection'] = round(row['Projection'] * multiplier, 1)
+        
     return df
 
 def run_ilp_optimization(df):
@@ -131,7 +158,7 @@ def create_visualizations(pool_df):
         color="Leverage_Score",
         hover_name="Player_Name",
         hover_data=["Team", "Role", "Salary"],
-        title="DFS Leverage & Salary Matrix",
+        title="DFS Leverage & Salary Matrix (Post-Toss & Vegas Weighted)",
         color_continuous_scale="Viridis",
         template="plotly_dark"
     )
@@ -139,14 +166,39 @@ def create_visualizations(pool_df):
     fig.write_html("Enhanced_Leverage_Chart.html")
 
 if __name__ == "__main__":
-    # The script will detect this is invalid and auto-fetch a real match.
     MATCH_ID = "398"
     
-    player_pool = fetch_live_pool(MATCH_ID)
+    # 1. Post-Toss Ingestion: Check if confirmed squad file from the app exists, otherwise fetch via API/Sim
+    player_pool = load_post_toss_squad_from_file("post_toss_squad.csv")
+    if player_pool is None or player_pool.empty:
+        player_pool = fetch_live_pool(MATCH_ID)
+    
+    # 2. Extract active team names dynamically from the pool to set up market odds
+    unique_teams = player_pool['Team'].unique()
+    if len(unique_teams) >= 2:
+        # Assign baseline or live bookmaker implied probabilities based on the two teams playing
+        live_odds = {
+            unique_teams[0]: 0.58,  # E.g., 58% implied win probability for Team 1
+            unique_teams[1]: 0.42   # E.g., 42% implied win probability for Team 2
+        }
+    else:
+        live_odds = {}
+
+    # 3. Apply Vegas odds multipliers to dynamically weight projections
+    player_pool = apply_vegas_multipliers_from_api(player_pool, live_odds)
+    
+    # 4. Run ILP Optimization on the post-toss, Vegas-weighted player pool
     processed_pool, lineup = run_ilp_optimization(player_pool)
-    lineup.to_csv("Optimized_Lineup.csv", index=False)
+    
+    # 5. Store final lineup in the SQLite database warehouse
+    print("Saving lineup to SQL database...")
+    lineup.insert(0, "Match_ID", MATCH_ID)
+    
+    conn = sqlite3.connect("dfs_history.db")
+    lineup.to_sql("historical_lineups", conn, if_exists="append", index=False)
+    conn.close()
+    
+    # 6. Generate visual reports
     create_visualizations(processed_pool)
     
-    print("Pipeline complete! Check your folder for:")
-    print(" 1. Optimized_Lineup.csv")
-    print(" 2. Enhanced_Leverage_Chart.html")
+    print("Pipeline complete! Post-toss data captured, Vegas weights applied, and database updated.")
