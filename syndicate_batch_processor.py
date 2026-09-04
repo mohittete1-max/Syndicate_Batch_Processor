@@ -7,7 +7,7 @@ import sqlite3
 
 # HARDCODED API KEYS & TELEGRAM CONFIG
 CRICDATA_API_KEY = "4905f024-424c-4f6c-a2e6-b4e64f41f7bb"
-TELEGRAM_BOT_TOKEN = "8942957322:AAF86-GixapC8Rs88Jcn-wWX6M-o-6SYWKE"
+TELEGRAM_BOT_TOKEN = "8942957322:AAF86-GixapC8Rs88JCn-wWX6M-o-6SYWKE"
 TELEGRAM_CHAT_ID = "8942186617"
 
 def send_telegram_message(message):
@@ -87,40 +87,40 @@ if __name__ == "__main__":
             "odds": {"South Africa": 0.75, "Namibia": 0.25},
             "data": {
                 "Player_Name": [
-                    "R Hermann", "C Esterhuizen", "Z Green",
-                    "D Brevis", "L Pretorius", "J Hermann", "A Volschenk", "de Zorzi", "M Kruger", "J Taanyanda", "L Steenkamp", "J Smith", "J Frylinck", "van Lingen", "D Leicher",
-                    "G Erasmus", "J Balt", "Smit", "E Bosch", "P Subrayen", "Nicol Loftie-Eaton", "A Simelane",
-                    "K Maphaka", "B Fortuin", "L Sipamla", "N Peter", "W Smith", "D Jansen", "J Brassell", "N Mokoena", "M Heingo", "B Shikongo", "R Trumpelmann", "B Scholtz"
+                    "R Hermann", "C Esterhuizen", "Z Green", "L Pretorius",
+                    "D Brevis", "J Hermann", "A Volschenk", "M Kruger", "L Steenkamp",
+                    "G Erasmus", "J Balt", "Smit", "E Bosch", "A Simelane",
+                    "K Maphaka", "B Fortuin", "N Peter", "J Brassell", "N Mokoena", "M Heingo", "R Trumpelmann"
                 ],
                 "Team": [
-                    "South Africa", "South Africa", "Namibia",
-                    "South Africa", "South Africa", "Namibia", "Namibia", "South Africa", "Namibia", "Namibia", "Namibia", "South Africa", "Namibia", "Namibia", "Namibia",
-                    "Namibia", "Namibia", "Namibia", "South Africa", "South Africa", "Namibia", "South Africa",
-                    "South Africa", "South Africa", "South Africa", "South Africa", "Namibia", "South Africa", "Namibia", "Namibia", "Namibia", "Namibia", "Namibia", "Namibia"
+                    "South Africa", "South Africa", "Namibia", "South Africa",
+                    "South Africa", "South Africa", "Namibia", "Namibia", "Namibia",
+                    "Namibia", "Namibia", "Namibia", "South Africa", "South Africa",
+                    "South Africa", "South Africa", "South Africa", "Namibia", "South Africa", "Namibia", "Namibia"
                 ],
                 "Role": [
-                    "WK", "WK", "WK",
-                    "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT", "BAT",
-                    "AR", "AR", "AR", "AR", "AR", "AR", "AR",
-                    "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL"
+                    "WK", "WK", "WK", "WK",
+                    "BAT", "BAT", "BAT", "BAT", "BAT",
+                    "AR", "AR", "AR", "AR", "AR",
+                    "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL", "BOWL"
                 ],
                 "Salary": [
-                    8.5, 7.0, 6.0,
-                    9.0, 8.5, 8.0, 8.0, 8.0, 8.0, 8.0, 7.5, 7.5, 7.0, 6.5, 6.0,
-                    8.0, 8.0, 7.0, 7.0, 6.5, 6.5, 6.5,
-                    8.0, 8.0, 8.0, 7.5, 7.5, 7.0, 7.0, 7.0, 6.5, 6.5, 6.0, 6.0
+                    8.5, 7.0, 6.0, 8.5,
+                    9.0, 8.0, 8.0, 8.0, 7.5,
+                    8.0, 8.0, 7.0, 7.0, 6.5,
+                    8.0, 8.0, 7.5, 7.0, 7.0, 6.5, 6.0
                 ],
                 "Projection": [
-                    52.0, 38.0, 130.0,
-                    417.0, 265.0, 129.0, 198.0, 48.0, 0.0, 0.0, 115.0, 0.0, 194.0, 0.0, 0.0,
-                    372.0, 35.0, 193.0, 93.0, 247.0, 97.0, 0.0,
-                    71.0, 314.0, 7.0, 31.0, 0.0, 377.0, 111.0, 55.0, 104.0, 0.0, 253.0, 44.0
+                    52.0, 38.0, 130.0, 265.0,
+                    417.0, 129.0, 198.0, 0.0, 115.0,
+                    372.0, 35.0, 193.0, 93.0, 0.0,
+                    71.0, 314.0, 31.0, 111.0, 55.0, 104.0, 253.0
                 ],
                 "pOWN%": [
-                    23.73, 21.95, 69.25,
-                    91.93, 87.07, 63.29, 26.40, 1.76, 2.55, 1.99, 23.36, 2.48, 69.31, 2.74, 2.61,
-                    92.17, 7.12, 77.21, 31.50, 81.83, 11.73, 2.25,
-                    18.02, 85.53, 2.65, 9.17, 2.91, 84.18, 16.12, 2.12, 9.25, 2.80, 70.16, 2.83
+                    23.73, 21.95, 69.25, 87.07,
+                    91.93, 63.29, 26.40, 2.44, 23.89,
+                    92.17, 7.37, 77.21, 32.08, 2.19,
+                    18.50, 85.48, 9.40, 16.85, 2.00, 9.44, 70.34
                 ]
             }
         },
